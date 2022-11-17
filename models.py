@@ -81,7 +81,7 @@ def create_modules(module_defs):
                 downscaling_factors=[int(x) for x in module_def['downscaling_factors'].split(',')],
                 relative_pos_embedding=bool(module_def['relative_pos_embedding'])
             )
-            filters = int(module_def['dim'])
+            filters = int(module_def['hidden_dim'])
             modules.add_module('vit_%d' % i, vit)
 
         elif module_def['type'] == 'yolo':
@@ -263,6 +263,7 @@ class Darknet(nn.Module):
         for i, (module_def, module) in enumerate(zip(self.module_defs, self.module_list)):
             mtype = module_def['type']
             if mtype in ['convolutional', 'upsample', 'maxpool', 'swin']:
+                print(mtype, x.shape)
                 x = module(x)
             elif mtype == 'route':
                 layer_i = [int(x) for x in module_def['layers'].split(',')]
