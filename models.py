@@ -70,7 +70,7 @@ def create_modules(module_defs):
             modules.add_module('shortcut_%d' % i, EmptyLayer())
 
         elif module_def['type'] == 'swin':
-            vit = SwinTransformer(
+            swin = SwinTransformer(
                 hidden_dim=int(module_def['hidden_dim']),
                 layers=[int(x) for x in module_def['layers'].split(',')],
                 heads=[int(x) for x in module_def['heads'].split(',')],
@@ -81,8 +81,8 @@ def create_modules(module_defs):
                 downscaling_factors=[int(x) for x in module_def['downscaling_factors'].split(',')],
                 relative_pos_embedding=bool(module_def['relative_pos_embedding'])
             )
-            filters = int(module_def['hidden_dim'])
-            modules.add_module('vit_%d' % i, vit)
+            filters = int(module_def['dim'])
+            modules.add_module('vit_%d' % i, swin)
 
         elif module_def['type'] == 'yolo':
             anchor_idxs = [int(x) for x in module_def['mask'].split(',')]
@@ -263,7 +263,7 @@ class Darknet(nn.Module):
         for i, (module_def, module) in enumerate(zip(self.module_defs, self.module_list)):
             mtype = module_def['type']
             if mtype in ['convolutional', 'upsample', 'maxpool', 'swin']:
-                print(mtype, x.shape)
+                # print(mtype, x.shape)
                 x = module(x)
             elif mtype == 'route':
                 layer_i = [int(x) for x in module_def['layers'].split(',')]

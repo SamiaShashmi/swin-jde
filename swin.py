@@ -221,11 +221,4 @@ class SwinTransformer(nn.Module):
         x = self.stage2(x)
         x = self.stage3(x)
         x = self.stage4(x)
-
-        x = x.permute(0, 3, 1, 2)
-
-        print ('~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~')
-        print ('Swin', x.shape)
-        print ('~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~')
-
         return x
