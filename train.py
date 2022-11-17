@@ -24,6 +24,7 @@ def train(
         accumulated_batches=1,
         freeze_backbone=False,
         opt=None,
+        workers = 8
 ):
     # The function starts
 
@@ -49,7 +50,7 @@ def train(
     # Get dataloader
     dataset = JointDataset(dataset_root, trainset_paths, img_size, augment=True, transforms=transforms)
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True,
-                                             num_workers=8, pin_memory=True, drop_last=True, collate_fn=collate_fn)
+                                             num_workers=workers, pin_memory=True, drop_last=True, collate_fn=collate_fn)
     # Initialize model
     model = Darknet(cfg, dataset.nID)
 
@@ -151,6 +152,7 @@ def train(
             t0 = time.time()
             if i % opt.print_interval == 0:
                 logger.info(s)
+            
 
         # Save latest checkpoint
         checkpoint = {'epoch': epoch,
@@ -166,15 +168,14 @@ def train(
             # making the checkpoint lite
             checkpoint["optimizer"] = []
             torch.save(checkpoint, osp.join(weights_to, "weights_epoch_" + str(epoch) + ".pt"))
+
         # Calculate mAP
-        '''
         if epoch % opt.test_interval == 0:
             with torch.no_grad():
-                mAP, R, P = test.test(cfg, data_cfg, weights=latest, batch_size=batch_size,
-                                      print_interval=40)
-                test.test_emb(cfg, data_cfg, weights=latest, batch_size=batch_size,
+                mAP, R, P = test.test(cfg, data_cfg, weights=latest, batch_size=batch_size,                                       print_interval=40)
+                test.test_emb(cfg, data_cfg, weights=latest, batch_size=batch_size, 
                               print_interval=40)
-        '''
+
         # Call scheduler.step() after opimizer.step() with pytorch > 1.1.0
         scheduler.step()
 
@@ -185,7 +186,7 @@ if __name__ == '__main__':
     parser.add_argument('--batch-size', type=int, default=32, help='size of each image batch')
     parser.add_argument('--accumulated-batches', type=int, default=1, help='number of batches before optimizer step')
     parser.add_argument('--cfg', type=str, default='cfg/yolov3.cfg', help='cfg file path')
-    parser.add_argument('--weights-from', type=str, default='weights/run24_03_06_18',
+    parser.add_argument('--weights-from', type=str, default='weights/',
                         help='Path for getting the trained model for resuming training (Should only be used with '
                              '--resume)')
     parser.add_argument('--weights-to', type=str, default='weights/',
@@ -194,12 +195,13 @@ if __name__ == '__main__':
     parser.add_argument('--save-model-after', type=int, default=10,
                         help='Save a checkpoint of model at given interval of epochs')
     parser.add_argument('--data-cfg', type=str, default='cfg/ccmcpe.json', help='coco.data file path')
-    parser.add_argument('--img-size', type=int, default=[864,480], nargs='+', help='pixels')
+    parser.add_argument('--img-size', type=int, default=[1088, 608], nargs='+', help='pixels')
     parser.add_argument('--resume', action='store_true', help='resume training flag')
     parser.add_argument('--print-interval', type=int, default=40, help='print interval')
     parser.add_argument('--test-interval', type=int, default=9, help='test interval')
-    parser.add_argument('--lr', type=float, default=1e-4, help='init lr')
+    parser.add_argument('--lr', type=float, default=1e-2, help='init lr')
     parser.add_argument('--unfreeze-bn', action='store_true', help='unfreeze bn')
+    parser.add_argument('--num-worker', type=int, default=8, help='Data loader')
     opt = parser.parse_args()
 
     init_seeds()
@@ -216,4 +218,5 @@ if __name__ == '__main__':
         batch_size=opt.batch_size,
         accumulated_batches=opt.accumulated_batches,
         opt=opt,
+        workers=opt.num_worker
     )
