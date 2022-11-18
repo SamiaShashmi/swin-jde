@@ -75,7 +75,6 @@ def create_modules(module_defs):
                 layers=[int(x) for x in module_def['layers'].split(',')],
                 heads=[int(x) for x in module_def['heads'].split(',')],
                 channels=int(module_def['channels']),
-                num_classes=int(module_def['num_classes']),
                 head_dim=int(module_def['head_dim']),
                 window_size=int(module_def['window_size']),
                 downscaling_factors=[int(x) for x in module_def['downscaling_factors'].split(',')],
