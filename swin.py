@@ -194,7 +194,7 @@ class StageModule(nn.Module):
 
 
 class SwinTransformer(nn.Module):
-    def __init__(self, *, hidden_dim, layers, heads, channels=3, num_classes=1000, head_dim=32, window_size=7,
+    def __init__(self, *, hidden_dim, layers, heads, channels=3, dim=1024, head_dim=32, window_size=7,
                  downscaling_factors=(4, 2, 2, 2), relative_pos_embedding=True):
         super().__init__()
 
@@ -212,8 +212,11 @@ class SwinTransformer(nn.Module):
                                   window_size=window_size, relative_pos_embedding=relative_pos_embedding)
 
         self.mlp_head = nn.Sequential(
-            nn.LayerNorm(hidden_dim * 8),
-            nn.Linear(hidden_dim * 8, num_classes)
+            nn.Linear(dim, dim * 4),
+            nn.GELU(),
+            nn.Dropout(0.1),
+            nn.Linear(dim * 4, dim),
+            nn.Dropout(0.1)
         )
 
     def forward(self, img):
@@ -221,4 +224,8 @@ class SwinTransformer(nn.Module):
         x = self.stage2(x)
         x = self.stage3(x)
         x = self.stage4(x)
+        x = x.permute (0, 2, 3, 1)
+        x = self.mlp_head(x)
+        x = x.permute (0, 3, 1, 2)
+
         return x

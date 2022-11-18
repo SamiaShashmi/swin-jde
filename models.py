@@ -79,7 +79,8 @@ def create_modules(module_defs):
                 head_dim=int(module_def['head_dim']),
                 window_size=int(module_def['window_size']),
                 downscaling_factors=[int(x) for x in module_def['downscaling_factors'].split(',')],
-                relative_pos_embedding=bool(module_def['relative_pos_embedding'])
+                relative_pos_embedding=bool(module_def['relative_pos_embedding']),
+                dim = int(module_def['dim'])
             )
             filters = int(module_def['dim'])
             modules.add_module('vit_%d' % i, swin)
