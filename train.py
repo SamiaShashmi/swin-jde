@@ -80,12 +80,16 @@ def train(
         elif cfg.endswith('yolov3-tiny.cfg'):
             load_darknet_weights(model, osp.join(weights_from, 'yolov3-tiny.conv.15'))
             cutoff = 15
+        elif cfg.endswith('swin.cfg'):
+            load_swin_weights(model, osp.join(weights_from, 'swin.pth'))
 
         model.cuda().train()
 
         # Set optimizer
-        optimizer = torch.optim.SGD(filter(lambda x: x.requires_grad, model.parameters()), lr=opt.lr, momentum=.9,
-                                    weight_decay=1e-4)
+        # optimizer = torch.optim.SGD(filter(lambda x: x.requires_grad, model.parameters()), lr=opt.lr, momentum=.9,
+        #                             weight_decay=1e-4)
+        optimizer = torch.optim.AdamW(filter(lambda x: x.requires_grad, model.parameters()), lr=opt.lr,
+                                      weight_decay=0.01)
 
     model = torch.nn.DataParallel(model)
     # Set scheduler
