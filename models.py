@@ -387,6 +387,61 @@ def load_darknet_weights(self, weights, cutoff=-1):
             conv_layer.weight.data.copy_(conv_w)
             ptr += num_w
 
+def load_swin_weights(self, weights):
+    
+    check_point = torch.load(weights, map_location='cpu')
+    check_point_state_dict = check_point['state_dict']
+
+
+    cnt_basic_layer = 0
+    cnt_layer_norm = 0
+
+
+    for i, (module_def, module) in enumerate(zip(self.module_defs, self.module_list)):
+    
+        if module_def['type'] == 'patch_embedding':
+            print("loading patch embedding layer")
+            curr_module = module[0]
+            curr_module_state_dict = curr_module.state_dict()
+            prefix = 'backbone.patch_embed.'
+
+            for k in curr_module_state_dict.keys():
+                curr_module_state_dict[k] = check_point_state_dict[prefix + k]
+
+            curr_module.load_state_dict(curr_module_state_dict)
+
+        elif module_def['type'] == 'basic_layer':
+            print(f"loading basic_layer{cnt_basic_layer}")
+        
+            curr_module = module[0]
+            curr_module_state_dict = curr_module.state_dict()
+            prefix = 'backbone.layers.' + str(cnt_basic_layer) +'.'
+
+            for k in curr_module_state_dict.keys():
+                curr_module_state_dict[k] = check_point_state_dict[prefix + k]
+
+            curr_module.load_state_dict(curr_module_state_dict)
+
+            cnt_basic_layer += 1
+
+        elif module_def['type'] == 'layer_norm':
+            print(f"loading layer_norm{cnt_layer_norm}")
+        
+            curr_module = module[0]
+            curr_module_state_dict = curr_module.state_dict()
+            prefix = 'backbone.norm' + str(cnt_layer_norm) + '.'
+
+            for k in curr_module_state_dict.keys():
+                curr_module_state_dict[k] = check_point_state_dict[prefix + k]
+
+            curr_module.load_state_dict(curr_module_state_dict)
+
+            cnt_layer_norm += 1
+
+        else:
+            break
+
+
 
 """
     @:param path    - path of the new weights file
