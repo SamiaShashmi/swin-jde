@@ -7,20 +7,23 @@ from utils.parse_config import *
 from utils.utils import *
 import time
 import math
-from swin import SwinTransformer
+
+from swin import *
 
 try:
     from utils.syncbn import SyncBN
     batch_norm=SyncBN #nn.BatchNorm2d
+
 except ImportError:
     batch_norm=nn.BatchNorm2d
+
 
 def create_modules(module_defs):
     """
     Constructs module list of layer blocks from module configuration in module_defs
     """
     hyperparams = module_defs.pop(0)
-    output_filters = [int(hyperparams['channels'])]
+    output_filters = [int(hyperparams['channels'])]  # = [3]
     module_list = nn.ModuleList()
     yolo_layer_count = 0
     for i, module_def in enumerate(module_defs):
@@ -43,10 +46,44 @@ def create_modules(module_defs):
                 # BN is uniformly initialized by default in pytorch 1.0.1. 
                 # In pytorch>1.2.0, BN weights are initialized with constant 1,
                 # but we find with the uniform initialization the model converges faster.
-                nn.init.uniform_(after_bn.weight) 
+                nn.init.uniform_(after_bn.weight)
                 nn.init.zeros_(after_bn.bias)
             if module_def['activation'] == 'leaky':
                 modules.add_module('leaky_%d' % i, nn.LeakyReLU(0.1))
+
+            output_filters.append(filters)
+
+        elif module_def['type'] == 'patch_embedding':  # swin第一个阶段: patch embedding
+            norm_layer = nn.LayerNorm if module_def['norm_layer'] == 'true' else None
+            modules.add_module('patch embedding%d' % i, PatchEmbed(patch_size=int(module_def['patch_size']),
+                                                                   in_chans=int(module_def['in_channels']),
+                                                                   embed_dim=int(module_def['embed_dim']),
+                                                                   norm_layer=norm_layer))
+
+            filters = int(module_def['embed_dim'])
+
+            output_filters.append(filters)
+
+        elif module_def['type'] == 'basic_layer':
+            downsample = True if module_def['downsample'] == 'true' else False
+
+            modules.add_module('swinT layer%d' % i,
+                               BasicLayer(
+                                   dim=int(module_def['dim']),
+                                   depth=int(module_def['depth']),
+                                   num_heads=int(module_def['num_heads']),
+                                   window_size=int(module_def['window_size']),
+                                   downsample=downsample
+                               ))
+            # filters = int(module_def['dim'])  # channels doubled after a block
+        
+        elif module_def['type'] == 'layer_norm':
+            modules.add_module('layer norm%d'% i, 
+                                nn.LayerNorm(normalized_shape=int(module_def['features'])))
+
+            filters = int(module_def['features'])
+
+            output_filters.append(filters)
 
         elif module_def['type'] == 'maxpool':
             kernel_size = int(module_def['size'])
@@ -56,51 +93,46 @@ def create_modules(module_defs):
             maxpool = nn.MaxPool2d(kernel_size=kernel_size, stride=stride, padding=int((kernel_size - 1) // 2))
             modules.add_module('maxpool_%d' % i, maxpool)
 
+            output_filters.append(filters)
+
         elif module_def['type'] == 'upsample':
             upsample = Upsample(scale_factor=int(module_def['stride']))
             modules.add_module('upsample_%d' % i, upsample)
 
+            output_filters.append(filters)
+
         elif module_def['type'] == 'route':
-            layers = [int(x) for x in module_def['layers'].split(',')]
+            layers = [int(x) for x in module_def['layers'].split(',')]  # [-3] or [-3, -1] or [-1, 61] etc
             filters = sum([output_filters[i + 1 if i > 0 else i] for i in layers])
             modules.add_module('route_%d' % i, EmptyLayer())
+
+            output_filters.append(filters)
 
         elif module_def['type'] == 'shortcut':
             filters = output_filters[int(module_def['from'])]
             modules.add_module('shortcut_%d' % i, EmptyLayer())
 
-        elif module_def['type'] == 'swin':
-            swin = SwinTransformer(
-                hidden_dim=int(module_def['hidden_dim']),
-                layers=[int(x) for x in module_def['layers'].split(',')],
-                heads=[int(x) for x in module_def['heads'].split(',')],
-                channels=int(module_def['channels']),
-                head_dim=int(module_def['head_dim']),
-                window_size=int(module_def['window_size']),
-                downscaling_factors=[int(x) for x in module_def['downscaling_factors'].split(',')],
-                relative_pos_embedding=bool(module_def['relative_pos_embedding']),
-                dim = int(module_def['dim'])
-            )
-            filters = int(module_def['dim'])
-            modules.add_module('vit_%d' % i, swin)
+            output_filters.append(filters)
 
         elif module_def['type'] == 'yolo':
             anchor_idxs = [int(x) for x in module_def['mask'].split(',')]
             # Extract anchors
             anchors = [float(x) for x in module_def['anchors'].split(',')]
             anchors = [(anchors[i], anchors[i + 1]) for i in range(0, len(anchors), 2)]
-            anchors = [anchors[i] for i in anchor_idxs]
-            nC = int(module_def['classes'])  # number of classes
-            img_size = (int(hyperparams['width']),int(hyperparams['height']))
+            anchors = [anchors[i] for i in anchor_idxs]  # eg [(8,24), (11,34), (16,48), (23,68),]
+            nC = int(module_def['classes'])  # number of classes  = 1
+            img_size = (int(hyperparams['width']), int(hyperparams['height']))
             # Define detection layer
-            yolo_layer = YOLOLayer(anchors, nC, int(hyperparams['nID']), 
+            yolo_layer = YOLOLayer(anchors, nC, int(hyperparams['nID']),
                                    int(hyperparams['embedding_dim']), img_size, yolo_layer_count)
             modules.add_module('yolo_%d' % i, yolo_layer)
             yolo_layer_count += 1
 
+            output_filters.append(filters)
+
         # Register module list and number of output filters
         module_list.append(modules)
-        output_filters.append(filters)
+        # output_filters.append(filters)
 
     return hyperparams, module_list
 
@@ -229,14 +261,18 @@ class YOLOLayer(nn.Module):
             return p.view(nB, -1, p.shape[-1])
 
 
-class Darknet(nn.Module):
-    """YOLOv3 object detection model"""
+class Swin_JDE(nn.Module):
+    """
+    YOLOv3 object detection model
+    with Swin-T backbone  
+    """
 
     def __init__(self, cfg_dict, nID=0, test_emb=False):
-        super(Darknet, self).__init__()
+        super(Swin_JDE, self).__init__()
+        cfg = cfg_dict
         if isinstance(cfg_dict, str):
             cfg_dict = parse_model_cfg(cfg_dict)
-        self.module_defs = cfg_dict 
+        self.module_defs = cfg_dict
         self.module_defs[0]['nID'] = nID
         self.img_size = [int(self.module_defs[0]['width']), int(self.module_defs[0]['height'])]
         self.emb_dim = int(self.module_defs[0]['embedding_dim'])
@@ -246,51 +282,91 @@ class Darknet(nn.Module):
         for ln in self.loss_names:
             self.losses[ln] = 0
         self.test_emb = test_emb
-        
-        self.classifier = nn.Linear(self.emb_dim, nID) if nID>0 else None
 
+        self.classifier = nn.Linear(self.emb_dim, nID) if nID > 0 else None
+
+        if 'swin_b' in cfg:
+            # 用于Swin-b的block 输出reshape
+            self.num_features = [128, 128, 128, 256, 256, 512, 512, 1024, 1024]
+        else:
+            self.num_features = [96, 96, 96, 192, 192, 384, 384, 768, 768]  # 用于Swin-t, Swin-s的block 输出reshape
 
 
     def forward(self, x, targets=None, targets_len=None):
+        # print(x.shape)
         self.losses = OrderedDict()
         for ln in self.loss_names:
             self.losses[ln] = 0
         is_training = (targets is not None) and (not self.test_emb)
-        #img_size = x.shape[-1]
+        # img_size = x.shape[-1]
         layer_outputs = []
         output = []
-
+        # print(self.module_list)
+        # exit(0)
         for i, (module_def, module) in enumerate(zip(self.module_defs, self.module_list)):
             mtype = module_def['type']
-            if mtype in ['convolutional', 'upsample', 'maxpool', 'swin']:
-                # print(mtype, x.shape)
+            if mtype in ['convolutional', 'upsample', 'maxpool']:
                 x = module(x)
+                # print(f"{mtype}****{x.shape}")
+                layer_outputs.append(x)
+
+            elif mtype == 'patch_embedding':
+                x = module(x)
+                # print(f"{mtype}****{x.shape}")
+                layer_outputs.append(x)
+
+            elif mtype == 'basic_layer':  # swin block
+
+                if i == 1:  # 第一个block块 从四维展为三维
+                    Wh, Ww = x.size(2), x.size(3)
+                    x = x.flatten(2).transpose(1, 2)
+                x_out, H, W, x, Wh, Ww = module[0](x, Wh, Ww)  # module[0]??
+                # print(f"{mtype}****{x_out.shape}")
+                # layer_outputs.append(out)
+
+            elif mtype == 'layer_norm':  # LayerNorm层
+                x_out = module(x_out)
+
+                out = x_out.view(-1, H, W, self.num_features[i]).permute(0, 3, 1, 2).contiguous()
+                # print(f"{mtype}****{out.shape}")
+                layer_outputs.append(out)  # Layernorm的输出才加入
+
+                if i == 8: # last norm layer update x
+                    x = out
+
             elif mtype == 'route':
                 layer_i = [int(x) for x in module_def['layers'].split(',')]
                 if len(layer_i) == 1:
                     x = layer_outputs[layer_i[0]]
                 else:
                     x = torch.cat([layer_outputs[i] for i in layer_i], 1)
+
+                layer_outputs.append(x)
+                # print(f"{mtype}****{x.shape}")
             elif mtype == 'shortcut':
                 layer_i = int(module_def['from'])
                 x = layer_outputs[-1] + layer_outputs[layer_i]
+                layer_outputs.append(x)
+                # print(f"{mtype}****{x.shape}")
             elif mtype == 'yolo':
                 if is_training:  # get loss
-                    targets = [targets[i][:int(l)] for i,l in enumerate(targets_len)]
+                    targets = [targets[i][:int(l)] for i, l in enumerate(targets_len)]
                     x, *losses = module[0](x, self.img_size, targets, self.classifier)
                     for name, loss in zip(self.loss_names, losses):
                         self.losses[name] += loss
                 elif self.test_emb:
                     if targets is not None:
-                        targets = [targets[i][:int(l)] for i,l in enumerate(targets_len)]
+                        targets = [targets[i][:int(l)] for i, l in enumerate(targets_len)]
                     x = module[0](x, self.img_size, targets, self.classifier, self.test_emb)
                 else:  # get detections
                     x = module[0](x, self.img_size)
                 output.append(x)
-            layer_outputs.append(x)
-
+                layer_outputs.append(x)
+                # print(f"{mtype}****{x.shape}")
+            # layer_outputs.append(x)
+        # exit(0)
         if is_training:
-            self.losses['nT'] /= 3 
+            self.losses['nT'] /= 3
             output = [o.squeeze() for o in output]
             return sum(output), torch.Tensor(list(self.losses.values())).cuda()
         elif self.test_emb:
@@ -321,74 +397,7 @@ def create_grids(self, img_size, nGh, nGw):
     self.anchor_vec = self.anchors / self.stride
     self.anchor_wh = self.anchor_vec.view(1, self.nA, 1, 1, 2)
 
-
-def load_darknet_weights(self, weights, cutoff=-1):
-    # Parses and loads the weights stored in 'weights'
-    # cutoff: save layers between 0 and cutoff (if cutoff = -1 all are saved)
-    weights_file = weights.split(os.sep)[-1]
-
-    # Try to download weights if not available locally
-    if not os.path.isfile(weights):
-        try:
-            os.system('wget https://pjreddie.com/media/files/' + weights_file + ' -O ' + weights)
-        except IOError:
-            print(weights + ' not found')
-
-    # Establish cutoffs
-    if weights_file == 'darknet53.conv.74':
-        cutoff = 75
-    elif weights_file == 'yolov3-tiny.conv.15':
-        cutoff = 15
-
-    # Open the weights file
-    fp = open(weights, 'rb')
-    header = np.fromfile(fp, dtype=np.int32, count=5)  # First five are header values
-
-    # Needed to write header when saving weights
-    self.header_info = header
-
-    self.seen = header[3]  # number of images seen during training
-    weights = np.fromfile(fp, dtype=np.float32)  # The rest are weights
-    fp.close()
-
-    ptr = 0
-    for i, (module_def, module) in enumerate(zip(self.module_defs[:cutoff], self.module_list[:cutoff])):
-        if module_def['type'] == 'convolutional':
-            conv_layer = module[0]
-            if module_def['batch_normalize']:
-                # Load BN bias, weights, running mean and running variance
-                bn_layer = module[1]
-                num_b = bn_layer.bias.numel()  # Number of biases
-                # Bias
-                bn_b = torch.from_numpy(weights[ptr:ptr + num_b]).view_as(bn_layer.bias)
-                bn_layer.bias.data.copy_(bn_b)
-                ptr += num_b
-                # Weight
-                bn_w = torch.from_numpy(weights[ptr:ptr + num_b]).view_as(bn_layer.weight)
-                bn_layer.weight.data.copy_(bn_w)
-                ptr += num_b
-                # Running Mean
-                bn_rm = torch.from_numpy(weights[ptr:ptr + num_b]).view_as(bn_layer.running_mean)
-                bn_layer.running_mean.data.copy_(bn_rm)
-                ptr += num_b
-                # Running Var
-                bn_rv = torch.from_numpy(weights[ptr:ptr + num_b]).view_as(bn_layer.running_var)
-                bn_layer.running_var.data.copy_(bn_rv)
-                ptr += num_b
-            else:
-                # Load conv. bias
-                num_b = conv_layer.bias.numel()
-                conv_b = torch.from_numpy(weights[ptr:ptr + num_b]).view_as(conv_layer.bias)
-                conv_layer.bias.data.copy_(conv_b)
-                ptr += num_b
-            # Load conv. weights
-            num_w = conv_layer.weight.numel()
-            conv_w = torch.from_numpy(weights[ptr:ptr + num_w]).view_as(conv_layer.weight)
-            conv_layer.weight.data.copy_(conv_w)
-            ptr += num_w
-
 def load_swin_weights(self, weights):
-    
     check_point = torch.load(weights, map_location='cpu')
     check_point_state_dict = check_point['state_dict']
 

@@ -24,9 +24,12 @@ def train(
         accumulated_batches=1,
         freeze_backbone=False,
         opt=None,
-        workers = 8
+        workers = 8,
+        usewandb=True,
 ):
     # The function starts
+
+    final_result = [] 
 
     timme = strftime("%Y-%d-%m %H:%M:%S", gmtime())
     timme = timme[5:-3].replace('-', '_')
@@ -52,7 +55,10 @@ def train(
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True,
                                              num_workers=workers, pin_memory=True, drop_last=True, collate_fn=collate_fn)
     # Initialize model
-    model = Darknet(cfg, dataset.nID)
+    model = Swin_JDE(cfg, dataset.nID)
+
+    if usewandb:
+        wandb.watch(model)
 
     cutoff = -1  # backbone reaches to cutoff layer
     start_epoch = 0
@@ -64,8 +70,8 @@ def train(
         model.cuda().train()
 
         # Set optimizer
-        optimizer = torch.optim.SGD(filter(lambda x: x.requires_grad, model.parameters()), lr=opt.lr, momentum=.9)
-
+        optimizer = torch.optim.AdamW(filter(lambda x: x.requires_grad, model.parameters()), lr=opt.lr,
+                                      weight_decay=0.01)
         start_epoch = checkpoint['epoch'] + 1
         if checkpoint['optimizer'] is not None:
             optimizer.load_state_dict(checkpoint['optimizer'])
@@ -74,13 +80,9 @@ def train(
 
     else:
         # Initialize model with backbone (optional)
-        if cfg.endswith('yolov3.cfg'):
-            load_darknet_weights(model, osp.join(weights_from, 'darknet53.conv.74'))
-            cutoff = 75
-        elif cfg.endswith('yolov3-tiny.cfg'):
-            load_darknet_weights(model, osp.join(weights_from, 'yolov3-tiny.conv.15'))
-            cutoff = 15
-        elif cfg.endswith('swin.cfg'):
+        if cfg.endswith('swin_b.cfg'):
+            load_swin_weights(model, osp.join(weights_from, 'swinb.pth'))
+        else:
             load_swin_weights(model, osp.join(weights_from, 'swin.pth'))
 
         model.cuda().train()
@@ -93,14 +95,14 @@ def train(
 
     model = torch.nn.DataParallel(model)
     # Set scheduler
-    scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer,
-                                                     milestones=[int(0.5 * opt.epochs), int(0.75 * opt.epochs)],
-                                                     gamma=0.1)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
 
     # An important trick for detection: freeze bn during fine-tuning
     if not opt.unfreeze_bn:
         for i, (name, p) in enumerate(model.named_parameters()):
             p.requires_grad = False if 'batch_norm' in name else True
+    
+    best_mAP, best_Recall = -1, -1  # use to save the best model
 
     # model_info(model)
     t0 = time.time()
@@ -110,10 +112,10 @@ def train(
             'Epoch', 'Batch', 'box', 'conf', 'id', 'total', 'nTargets', 'time'))
 
         # Freeze darknet53.conv.74 for first epoch
-        if freeze_backbone and (epoch < 2):
-            for i, (name, p) in enumerate(model.named_parameters()):
-                if int(name.split('.')[2]) < cutoff:  # if layer < 75
-                    p.requires_grad = False if (epoch == 0) else True
+        # if freeze_backbone and (epoch < 2):
+        #     for i, (name, p) in enumerate(model.named_parameters()):
+        #         if int(name.split('.')[2]) < cutoff:  # if layer < 75
+        #             p.requires_grad = False if (epoch == 0) else True
 
         ui = -1
         rloss = defaultdict(float)  # running loss
@@ -123,11 +125,11 @@ def train(
                 continue
 
             # SGD burn-in
-            burnin = min(1000, len(dataloader))
-            if (epoch == 0) & (i <= burnin):
-                lr = opt.lr * (i / burnin) ** 4
-                for g in optimizer.param_groups:
-                    g['lr'] = lr
+            # burnin = min(1000, len(dataloader))
+            # if (epoch == 0) & (i <= burnin):
+            #     lr = opt.lr * (i / burnin) ** 4
+            #     for g in optimizer.param_groups:
+            #         g['lr'] = lr
 
             # Compute loss, compute gradient, update parameters
             loss, components = model(imgs.cuda(), targets.cuda(), targets_len.cuda())
@@ -176,12 +178,32 @@ def train(
         # Calculate mAP
         if epoch % opt.test_interval == 0:
             with torch.no_grad():
-                mAP, R, P = test.test(cfg, data_cfg, weights=latest, batch_size=batch_size,                                       print_interval=40)
-                test.test_emb(cfg, data_cfg, weights=latest, batch_size=batch_size, 
-                              print_interval=40)
+                mAP, R, P = test.test(cfg, data_cfg, weights=latest, batch_size=batch_size, print_interval=40)
+                # test.test_emb(cfg, data_cfg, weights=latest, batch_size=batch_size, print_interval=40)
+                if mAP > best_mAP:
+                    torch.save(checkpoint, osp.join(weights_to, 'best_mAP.pt'))
+                    best_mAP = mAP
+
+                if R > best_Recall:
+                    torch.save(checkpoint, osp.join(weights_to, 'best_recall.pt'))
+                    best_Recall = R
+
+                final_result.append([epoch, mAP, R, P])
+        
+        if usewandb:
+            wandb.log({'mAP': mAP, 'Recall': R, 'Precision': P, 'epoch': epoch, 'box_loss': rloss['box'],
+                        'conf_loss': rloss['conf'], 'id_loss': rloss['id'],'loss': rloss['loss'],'nT_loss': rloss['nT'],
+                        "lr": optimizer.param_groups[0]["lr"], "epoch_time": time.time()-t0})
 
         # Call scheduler.step() after opimizer.step() with pytorch > 1.1.0
         scheduler.step()
+    
+    print('Epoch,   mAP,   R,   P:')
+    for row in final_result:
+        print(row[0], row[1][0], row[2][0], row[3][0])
+
+    print(f"best mAP:  {best_mAP}")
+    print(f"best Recall:  {best_Recall}")
 
 
 if __name__ == '__main__':
@@ -203,10 +225,18 @@ if __name__ == '__main__':
     parser.add_argument('--resume', action='store_true', help='resume training flag')
     parser.add_argument('--print-interval', type=int, default=40, help='print interval')
     parser.add_argument('--test-interval', type=int, default=9, help='test interval')
-    parser.add_argument('--lr', type=float, default=1e-2, help='init lr')
+    parser.add_argument('--lr', type=float, default=3e-4, help='init lr')
     parser.add_argument('--unfreeze-bn', action='store_true', help='unfreeze bn')
     parser.add_argument('--num-worker', type=int, default=8, help='Data loader')
+    parser.add_argument('--nowandb', action='store_true', help='disable wandb')
     opt = parser.parse_args()
+
+    usewandb = ~opt.nowandb
+    if usewandb:
+        import wandb
+        watermark = "Swin_JDE_2"
+        wandb.init(project="SWIN-JDE", name=watermark)
+        wandb.config.update(opt)
 
     init_seeds()
 
@@ -222,5 +252,6 @@ if __name__ == '__main__':
         batch_size=opt.batch_size,
         accumulated_batches=opt.accumulated_batches,
         opt=opt,
-        workers=opt.num_worker
+        workers=opt.num_worker,
+        usewandb=usewandb,
     )
