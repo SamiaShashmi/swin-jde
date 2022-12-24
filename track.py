@@ -179,15 +179,27 @@ if __name__ == '__main__':
     parser.add_argument('--nms-thres', type=float, default=0.4, help='iou threshold for non-maximum suppression')
     parser.add_argument('--min-box-area', type=float, default=200, help='filter out tiny boxes')
     parser.add_argument('--track-buffer', type=int, default=30, help='tracking buffer')
-    parser.add_argument('--test-mot16', action='store_true', help='tracking buffer')
     parser.add_argument('--save-images', action='store_true', help='save tracking results (image)')
     parser.add_argument('--save-videos', action='store_true', help='save tracking results (video)')
+    parser.add_argument('--train-mot17', action='store_true', help='tracking buffer')
+    parser.add_argument('--val-mot17', action='store_true', help='tracking buffer')
     opt = parser.parse_args()
     print(opt, end='\n\n')
-    seqs_str = '''MOT16-04'''
-    data_root = '/home/jykj/jyn/datasets/MOT/MOT16/train'
-    seqs = [seq.strip() for seq in seqs_str.split()]
 
+    if opt.train_mot17:
+        seqs_str = '''MOT17-02-SDP
+                      MOT17-04-SDP
+                      MOT17-05-SDP
+                      MOT17-09-SDP
+                      MOT17-10-SDP'''
+        data_root = 'MOT17/images/train'
+    
+    if opt.val_mot17:
+        seqs_str = '''MOT17-11-SDP
+                      MOT17-13-SDP'''
+        data_root = 'MOT17/images/val'
+
+    seqs = [seq.strip() for seq in seqs_str.split()]
     main(opt,
          data_root=data_root,
          seqs=seqs,

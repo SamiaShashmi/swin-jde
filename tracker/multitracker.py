@@ -160,7 +160,7 @@ class STrack(BaseTrack):
 class JDETracker(object):
     def __init__(self, opt, frame_rate=30):
         self.opt = opt
-        self.model = Darknet(opt.cfg, nID=14078)
+        self.model = Swin_JDE(opt.cfg)
         # load_darknet_weights(self.model, opt.weights)
         self.model.load_state_dict(torch.load(opt.weights, map_location='cpu')['model'], strict=False)
         self.model.cuda().eval()
@@ -208,7 +208,7 @@ class JDETracker(object):
         time_start = time.time()
         with torch.no_grad():
             pred = self.model(im_blob)
-        print("infer time: {}".format(time.time() - time_start))
+        # print("infer time: {}".format(time.time() - time_start))
         # pred is tensor of all the proposals (default number of proposals: 54264). Proposals have information associated with the bounding box and embeddings
         pred = pred[pred[:, :, 4] > self.opt.conf_thres]
         # pred now has lesser number of proposals. Proposals rejected on basis of object confidence score

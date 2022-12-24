@@ -22,12 +22,12 @@ def extract_ped_per_frame(
         conf_thres=0.3,
         nms_thres=0.45,
         print_interval=40,
-        nID=14455,
+        nID=0,
 ):
     mkdir_if_missing(output_root)
     
     # Initialize model
-    model = Darknet(cfg, img_size, nID)
+    model = Swin_JDE(cfg, img_size, nID)
 
     # Load weights
     if weights.endswith('.pt'):  # pytorch format
