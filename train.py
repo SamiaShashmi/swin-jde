@@ -70,12 +70,14 @@ def train(
         model.cuda().train()
 
         # Set optimizer
-        optimizer = torch.optim.AdamW(filter(lambda x: x.requires_grad, model.parameters()), lr=opt.lr,
-                                      weight_decay=0.01)
-        start_epoch = checkpoint['epoch'] + 1
-        if checkpoint['optimizer'] is not None:
-            optimizer.load_state_dict(checkpoint['optimizer'])
+        optimizer = torch.optim.AdamW(filter(lambda x: x.requires_grad, model.parameters()), lr=opt.lr)
 
+        start_epoch = checkpoint['epoch'] + 1
+        try:
+            if checkpoint['optimizer'] is not None:
+                optimizer.load_state_dict(checkpoint['optimizer'])
+        except:
+            pass
         del checkpoint  # current, saved
 
     else:
@@ -95,14 +97,18 @@ def train(
 
     model = torch.nn.DataParallel(model)
     # Set scheduler
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
+    # scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
+    # scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer,
+    #                                                  milestones=[int(opt.epochs - 9), int(opt.epochs - 3)],
+    #                                                  gamma=0.1)
 
     # An important trick for detection: freeze bn during fine-tuning
     if not opt.unfreeze_bn:
         for i, (name, p) in enumerate(model.named_parameters()):
             p.requires_grad = False if 'batch_norm' in name else True
     
-    best_mAP, best_Recall = -1, -1  # use to save the best model
+    best_mAP, best_Recall = -1, -1
+    mAP, R, P = 0,0,0  # use to save the best model
 
     # model_info(model)
     t0 = time.time()

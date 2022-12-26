@@ -20,6 +20,7 @@ def test(
         conf_thres=0.3,
         nms_thres=0.45,
         print_interval=40,
+        workers=8,
 ):
 
     # Configure run
@@ -49,7 +50,7 @@ def test(
     transforms = T.Compose([T.ToTensor()])
     dataset = JointDataset(dataset_root, test_path, img_size, augment=False, transforms=transforms)
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=False, 
-                                             num_workers=8, drop_last=False, collate_fn=collate_fn) 
+                                             num_workers=workers, drop_last=False, collate_fn=collate_fn) 
 
     mean_mAP, mean_R, mean_P, seen = 0.0, 0.0, 0.0, 0
     print('%11s' * 5 % ('Image', 'Total', 'P', 'R', 'mAP'))
@@ -258,5 +259,6 @@ if __name__ == '__main__':
                 opt.conf_thres,
                 opt.nms_thres,
                 opt.print_interval,
+                opt.num_worker,
             )
 
