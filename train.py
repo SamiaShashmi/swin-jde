@@ -112,7 +112,7 @@ def train(
 
     # model_info(model)
     t0 = time.time()
-    for epoch in range(epochs):
+    for epoch in range(epochs - start_epoch + 1):
         epoch += start_epoch
         logger.info(('%8s%12s' + '%10s' * 6) % (
             'Epoch', 'Batch', 'box', 'conf', 'id', 'total', 'nTargets', 'time'))
@@ -202,7 +202,7 @@ def train(
                         "lr": optimizer.param_groups[0]["lr"], "epoch_time": time.time()-t0})
 
         # Call scheduler.step() after opimizer.step() with pytorch > 1.1.0
-        scheduler.step()
+        # scheduler.step()
     
     print('Epoch,   mAP,   R,   P:')
     for row in final_result:
