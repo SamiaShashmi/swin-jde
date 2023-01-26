@@ -9,7 +9,32 @@ from utils.datasets import JointDataset, collate_fn
 from utils.utils import *
 from utils.log import logger
 from torchvision.transforms import transforms as T
+import track
+import warnings
+from utils.evaluation import Evaluator
+import utils.datasets as datasets
+import motmetrics as mm
 
+def eval_(opt, data_root, seqs):
+    result_root = os.path.join(data_root, '..', 'results', 'demo')
+    data_type = 'mot'
+    accs = []
+    n_frame = 0
+    for seq in seqs:
+        dataloader = datasets.LoadImages(osp.join(data_root, seq, 'img1'), opt.img_size)
+        result_filename = os.path.join(result_root, '{}.txt'.format(seq))
+        meta_info = open(os.path.join(data_root, seq, 'seqinfo.ini')).read() 
+        frame_rate = int(meta_info[meta_info.find('frameRate')+10:meta_info.find('\nseqLength')])
+        nf, ta, tc = track.eval_seq(opt, dataloader, 'data_type', result_filename)
+        n_frame += nf
+        evaluator = Evaluator(data_root, seq, data_type)
+        accs.append(evaluator.eval_file(result_filename))
+
+
+    metrics = mm.metrics.motchallenge_metrics
+    summary = Evaluator.get_summary(accs, seqs, metrics)
+    
+    return summary
 
 def train(
         cfg,
@@ -70,12 +95,11 @@ def train(
         model.cuda().train()
 
         # Set optimizer
-        optimizer = torch.optim.AdamW(filter(lambda x: x.requires_grad, model.parameters()), lr=opt.lr,
-                                      weight_decay=0.01)
+        optimizer = torch.optim.AdamW(filter(lambda x: x.requires_grad, model.parameters()), lr=opt.lr)
+
         start_epoch = checkpoint['epoch'] + 1
         if checkpoint['optimizer'] is not None:
-            optimizer.load_state_dict(checkpoint['optimizer'])
-
+                optimizer.load_state_dict(checkpoint['optimizer'])
         del checkpoint  # current, saved
 
     else:
@@ -95,18 +119,23 @@ def train(
 
     model = torch.nn.DataParallel(model)
     # Set scheduler
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.1)
+    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=30, gamma=0.1)
+    # scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer,
+    #                                                  milestones=[int(opt.epochs - 9), int(opt.epochs - 3)],
+    #                                                  gamma=0.1)
 
     # An important trick for detection: freeze bn during fine-tuning
     if not opt.unfreeze_bn:
         for i, (name, p) in enumerate(model.named_parameters()):
             p.requires_grad = False if 'batch_norm' in name else True
     
-    best_mAP, best_Recall = -1, -1  # use to save the best model
-
+    best_mAP, best_Recall = -1, -1
+    mAP, R, P = 0,0,0  # use to save the best model
+    mota, motp, idf1, num_switches = 0, 0, 0, 0
+    best_mota = -100
     # model_info(model)
     t0 = time.time()
-    for epoch in range(epochs):
+    for epoch in range(epochs - start_epoch + 1):
         epoch += start_epoch
         logger.info(('%8s%12s' + '%10s' * 6) % (
             'Epoch', 'Batch', 'box', 'conf', 'id', 'total', 'nTargets', 'time'))
@@ -172,7 +201,6 @@ def train(
         torch.save(checkpoint, latest)
         if epoch % save_every == 0 and epoch != 0:
             # making the checkpoint lite
-            checkpoint["optimizer"] = []
             torch.save(checkpoint, osp.join(weights_to, "weights_epoch_" + str(epoch) + ".pt"))
 
         # Calculate mAP
@@ -189,11 +217,23 @@ def train(
                     best_Recall = R
 
                 final_result.append([epoch, mAP, R, P])
+                data_root = 'MOT17/images/val'
+
+                seqs = ['MOT17-11-SDP', 'MOT17-13-SDP']
+                opt.weights = latest
+                print(opt.weights)
+
+                sm = eval_(opt, data_root=data_root, seqs=seqs)
+                mota, motp, idf1, num_switches = sm.mota['OVERALL'], sm.motp['OVERALL'], sm.idf1['OVERALL'], sm.num_switches['OVERALL']
+
+                best_mAP = max(best_mAP, mAP)
+
+
         
         if usewandb:
-            wandb.log({'mAP': mAP, 'Recall': R, 'Precision': P, 'epoch': epoch, 'box_loss': rloss['box'],
-                        'conf_loss': rloss['conf'], 'id_loss': rloss['id'],'loss': rloss['loss'],'nT_loss': rloss['nT'],
-                        "lr": optimizer.param_groups[0]["lr"], "epoch_time": time.time()-t0})
+            wandb.log({'mAP': mAP, 'Recall': R, 'Precision': P, 'MOTA' : mota, 'MOTP': motp, 'IDF1': idf1, 'IDs': num_switches,
+                        'epoch': epoch, 'box_loss': rloss['box'], 'conf_loss': rloss['conf'], 'id_loss': rloss['id'],'loss': rloss['loss'],
+                        'nT_loss': rloss['nT'], "lr": optimizer.param_groups[0]["lr"], "epoch_time": time.time()-t0})
 
         # Call scheduler.step() after opimizer.step() with pytorch > 1.1.0
         scheduler.step()
@@ -204,9 +244,12 @@ def train(
 
     print(f"best mAP:  {best_mAP}")
     print(f"best Recall:  {best_Recall}")
+    print(f"best MOTA:  {best_mota}")
+
 
 
 if __name__ == '__main__':
+    warnings.filterwarnings('ignore')
     parser = argparse.ArgumentParser()
     parser.add_argument('--epochs', type=int, default=30, help='number of epochs')
     parser.add_argument('--batch-size', type=int, default=32, help='size of each image batch')
@@ -229,16 +272,28 @@ if __name__ == '__main__':
     parser.add_argument('--unfreeze-bn', action='store_true', help='unfreeze bn')
     parser.add_argument('--num-worker', type=int, default=8, help='Data loader')
     parser.add_argument('--nowandb', action='store_true', help='disable wandb')
+    parser.add_argument('--watermark', type=str, default='Swin_JDE_2', help='watermark for wandb')
+    parser.add_argument('--iou-thres', type=float, default=0.5, help='iou threshold required to qualify as detected')
+    parser.add_argument('--conf-thres', type=float, default=0.5, help='object confidence threshold')
+    parser.add_argument('--nms-thres', type=float, default=0.4, help='iou threshold for non-maximum suppression')
+    parser.add_argument('--min-box-area', type=float, default=200, help='filter out tiny boxes')
+    parser.add_argument('--track-buffer', type=int, default=30, help='tracking buffer')
+    parser.add_argument('--save-images', action='store_true', help='save tracking results (image)')
+    parser.add_argument('--save-videos', action='store_true', help='save tracking results (video)')
+    parser.add_argument('--train-mot17', action='store_true', help='tracking buffer')
+    parser.add_argument('--val-mot17', action='store_true', help='tracking buffer')
+    parser.add_argument('--weights', type=str, default='weights/latest.pt', help='path to weights file')
     opt = parser.parse_args()
 
     usewandb = ~opt.nowandb
     if usewandb:
         import wandb
-        watermark = "Swin_JDE_2"
-        wandb.init(project="SWIN-JDE", name=watermark)
+        watermar = opt.watermark
+        wandb.init(project="SWIN-JDE", name=watermar)
         wandb.config.update(opt)
 
     init_seeds()
+
 
     train(
         opt.cfg,

@@ -48,8 +48,8 @@ def extract_ped_per_frame(
         dataloader = LoadImages(vpath, img_size)
         for frame_id, (frame_path, frame, frame_ori) in enumerate(dataloader):
             frame_ground_id = frame_path.split('/')[-1].split('.')[0]
-            if frame_id % 20 == 0:
-                print('Processing frame {} of video {}'.format(frame_id, frame_path))
+            # if frame_id % 20 == 0:
+                # print('Processing frame {} of video {}'.format(frame_id, frame_path))
             blob = torch.from_numpy(frame).cuda().unsqueeze(0)
             pred = model(blob)
             pred = pred[pred[:,:,4] > conf_thres]

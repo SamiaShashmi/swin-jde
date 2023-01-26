@@ -2,7 +2,7 @@ from numba import jit
 from collections import deque
 import torch
 from utils.kalman_filter import KalmanFilter
-from utils.log import logger
+# from utils.log import logger
 from models import *
 from tracker import matching
 from .basetrack import BaseTrack, TrackState
@@ -342,11 +342,11 @@ class JDETracker(object):
         # get scores of lost tracks
         output_stracks = [track for track in self.tracked_stracks if track.is_activated]
 
-        logger.debug('===========Frame {}=========='.format(self.frame_id))
-        logger.debug('Activated: {}'.format([track.track_id for track in activated_starcks]))
-        logger.debug('Refind: {}'.format([track.track_id for track in refind_stracks]))
-        logger.debug('Lost: {}'.format([track.track_id for track in lost_stracks]))
-        logger.debug('Removed: {}'.format([track.track_id for track in removed_stracks]))
+        # logger.debug('===========Frame {}=========='.format(self.frame_id))
+        # logger.debug('Activated: {}'.format([track.track_id for track in activated_starcks]))
+        # logger.debug('Refind: {}'.format([track.track_id for track in refind_stracks]))
+        # logger.debug('Lost: {}'.format([track.track_id for track in lost_stracks]))
+        # logger.debug('Removed: {}'.format([track.track_id for track in removed_stracks]))
         # print('Final {} s'.format(t5-t4))
         return output_stracks
 

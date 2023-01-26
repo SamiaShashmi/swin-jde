@@ -305,6 +305,7 @@ class Swin_JDE(nn.Module):
         # exit(0)
         for i, (module_def, module) in enumerate(zip(self.module_defs, self.module_list)):
             mtype = module_def['type']
+            i -= 7
             if mtype in ['convolutional', 'upsample', 'maxpool']:
                 x = module(x)
                 # print(f"{mtype}****{x.shape}")
