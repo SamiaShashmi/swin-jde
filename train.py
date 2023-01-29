@@ -9,32 +9,7 @@ from utils.datasets import JointDataset, collate_fn
 from utils.utils import *
 from utils.log import logger
 from torchvision.transforms import transforms as T
-import track
 import warnings
-from utils.evaluation import Evaluator
-import utils.datasets as datasets
-import motmetrics as mm
-
-def eval_(opt, data_root, seqs):
-    result_root = os.path.join(data_root, '..', 'results', 'demo')
-    data_type = 'mot'
-    accs = []
-    n_frame = 0
-    for seq in seqs:
-        dataloader = datasets.LoadImages(osp.join(data_root, seq, 'img1'), opt.img_size)
-        result_filename = os.path.join(result_root, '{}.txt'.format(seq))
-        meta_info = open(os.path.join(data_root, seq, 'seqinfo.ini')).read() 
-        frame_rate = int(meta_info[meta_info.find('frameRate')+10:meta_info.find('\nseqLength')])
-        nf, ta, tc = track.eval_seq(opt, dataloader, 'data_type', result_filename)
-        n_frame += nf
-        evaluator = Evaluator(data_root, seq, data_type)
-        accs.append(evaluator.eval_file(result_filename))
-
-
-    metrics = mm.metrics.motchallenge_metrics
-    summary = Evaluator.get_summary(accs, seqs, metrics)
-    
-    return summary
 
 def train(
         cfg,
@@ -51,12 +26,11 @@ def train(
         opt=None,
         workers = 8,
         usewandb=True,
+        timme=""
 ):
     # The function starts
 
-    final_result = [] 
-
-    timme = strftime("%Y_%m_%d_%H_%M_%S", localtime())
+    final_result = []    
     weights_to = osp.join(weights_to, 'run_' + timme)
     mkdir_if_missing(weights_to)
     if resume:
@@ -117,7 +91,7 @@ def train(
     model = torch.nn.DataParallel(model)
     # Set scheduler
     # scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=30, gamma=0.1)
-    scheduler = torch.optim.lr_sceduler.reduceLROnPlateau(optimizer, mode='min', patience=5)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=5)
     # scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer,
     #                                                  milestones=[int(opt.epochs - 9), int(opt.epochs - 3)],
     #                                                  gamma=0.1)
@@ -261,7 +235,7 @@ if __name__ == '__main__':
     parser.add_argument('--unfreeze-bn', action='store_true', help='unfreeze bn')
     parser.add_argument('--num-worker', type=int, default=8, help='Data loader')
     parser.add_argument('--nowandb', action='store_true', help='disable wandb')
-    parser.add_argument('--watermark', type=str, default='Swin_JDE_2', help='watermark for wandb')
+    parser.add_argument('--watermark', type=str, default='Swin_JDE', help='watermark for wandb')
     parser.add_argument('--iou-thres', type=float, default=0.5, help='iou threshold required to qualify as detected')
     parser.add_argument('--conf-thres', type=float, default=0.5, help='object confidence threshold')
     parser.add_argument('--nms-thres', type=float, default=0.4, help='iou threshold for non-maximum suppression')
@@ -273,12 +247,13 @@ if __name__ == '__main__':
     parser.add_argument('--val-mot17', action='store_true', help='tracking buffer')
     parser.add_argument('--weights', type=str, default='weights/latest.pt', help='path to weights file')
     opt = parser.parse_args()
+    timme = strftime("%Y_%m_%d_%H_%M_%S", localtime())
 
     usewandb = ~opt.nowandb
     if usewandb:
         import wandb
         watermar = opt.watermark
-        wandb.init(project="SWIN-JDE", name=watermar)
+        wandb.init(project="SWIN-JDE", name=watermar+timme)
         wandb.config.update(opt)
 
     init_seeds()
@@ -298,4 +273,5 @@ if __name__ == '__main__':
         opt=opt,
         workers=opt.num_worker,
         usewandb=usewandb,
+        timme = timme
     )
