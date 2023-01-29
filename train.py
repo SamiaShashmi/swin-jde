@@ -1,7 +1,7 @@
 import argparse
 import json
 import time
-from time import gmtime, strftime
+from time import localtime, strftime
 import test
 from models import *
 from shutil import copyfile
@@ -56,11 +56,8 @@ def train(
 
     final_result = [] 
 
-    timme = strftime("%Y-%d-%m %H:%M:%S", gmtime())
-    timme = timme[5:-3].replace('-', '_')
-    timme = timme.replace(' ', '_')
-    timme = timme.replace(':', '_')
-    weights_to = osp.join(weights_to, 'run' + timme)
+    timme = strftime("%Y_%m_%d_%H_%M_%S", localtime())
+    weights_to = osp.join(weights_to, 'run_' + timme)
     mkdir_if_missing(weights_to)
     if resume:
         latest_resume = osp.join(weights_from, 'latest.pt')
@@ -199,7 +196,7 @@ def train(
 
         latest = osp.join(weights_to, 'latest.pt')
         torch.save(checkpoint, latest)
-        if epoch % save_every == 0 and epoch != 0:
+        if epoch % opt.test_interval == 0 and epoch != 0:
             # making the checkpoint lite
             torch.save(checkpoint, osp.join(weights_to, "weights_epoch_" + str(epoch) + ".pt"))
 

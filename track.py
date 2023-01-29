@@ -188,11 +188,7 @@ if __name__ == '__main__':
     print(opt, end='\n\n')
 
     if opt.train_mot17:
-        seqs_str = '''MOT17-02-SDP
-                      MOT17-04-SDP
-                      MOT17-05-SDP
-                      MOT17-09-SDP
-                      MOT17-10-SDP'''
+        seqs_str = '''MOT17-02-SDP'''
         data_root = 'MOT17/images/train'
     
     if opt.val_mot17:

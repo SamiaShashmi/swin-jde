@@ -597,6 +597,7 @@ MOT17/images/train/MOT17-02-SDP/img1/000596.jpg
 MOT17/images/train/MOT17-02-SDP/img1/000597.jpg
 MOT17/images/train/MOT17-02-SDP/img1/000598.jpg
 MOT17/images/train/MOT17-02-SDP/img1/000599.jpg
+<<<<<<< HEAD
 MOT17/images/train/MOT17-02-SDP/img1/000600.jpg
 MOT17/images/train/MOT17-04-SDP/img1/000001.jpg
 MOT17/images/train/MOT17-04-SDP/img1/000002.jpg
@@ -5314,3 +5315,6 @@ MOT17/images/train/MOT17-13-SDP/img1/000406.jpg
 MOT17/images/train/MOT17-13-SDP/img1/000407.jpg
 MOT17/images/train/MOT17-13-SDP/img1/000408.jpg
 MOT17/images/train/MOT17-13-SDP/img1/000448.jpg
+=======
+MOT17/images/train/MOT17-02-SDP/img1/000600.jpg
+>>>>>>> 6da6ca0 (major changes)
