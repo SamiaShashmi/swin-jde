@@ -81,8 +81,8 @@ def eval_seq(opt, dataloader, data_type, result_filename, save_dir=None, show_im
     results = []
     frame_id = 0
     for path, img, img0 in dataloader:
-        # if frame_id % 20 == 0:
-        #     logger.info('Processing frame {} ({:.2f} fps)'.format(frame_id, 1./max(1e-5, timer.average_time)))
+        if frame_id % 20 == 0:
+            logger.info('Processing frame {} ({:.2f} fps)'.format(frame_id, 1./max(1e-5, timer.average_time)))
 
         # run tracking
         timer.tic()
@@ -109,13 +109,13 @@ def eval_seq(opt, dataloader, data_type, result_filename, save_dir=None, show_im
             cv2.imwrite(os.path.join(save_dir, '{:05d}.jpg'.format(frame_id)), online_im)
         frame_id += 1
     # save results
-    # write_results(result_filename, results, data_type)
+    write_results(result_filename, results, data_type)
     return frame_id, timer.average_time, timer.calls
 
 
 def main(opt, data_root='/data/MOT16/train', det_root=None, seqs=('MOT16-05',), exp_name='demo', 
          save_images=False, save_videos=False, show_image=True):
-    # logger.setLevel(logging.INFO)
+    logger.setLevel(logging.INFO)
     result_root = os.path.join(data_root, '..', 'results', exp_name)
     mkdir_if_missing(result_root)
     data_type = 'mot'
@@ -131,7 +131,7 @@ def main(opt, data_root='/data/MOT16/train', det_root=None, seqs=('MOT16-05',), 
     for seq in seqs:
         output_dir = os.path.join(data_root, '..','outputs', exp_name, seq) if save_images or save_videos else None
 
-        # logger.info('start seq: {}'.format(seq))
+        logger.info('start seq: {}'.format(seq))
         dataloader = datasets.LoadImages(osp.join(data_root, seq, 'img1'), opt.img_size)
         result_filename = os.path.join(result_root, '{}.txt'.format(seq))
         meta_info = open(os.path.join(data_root, seq, 'seqinfo.ini')).read() 
@@ -143,7 +143,7 @@ def main(opt, data_root='/data/MOT16/train', det_root=None, seqs=('MOT16-05',), 
         timer_calls.append(tc)
 
         # eval
-        # logger.info('Evaluate seq: {}'.format(seq))
+        logger.info('Evaluate seq: {}'.format(seq))
         evaluator = Evaluator(data_root, seq, data_type)
         accs.append(evaluator.eval_file(result_filename))
         if save_videos:
@@ -167,7 +167,7 @@ def main(opt, data_root='/data/MOT16/train', det_root=None, seqs=('MOT16-05',), 
     )
     print(strsummary)
     Evaluator.save_summary(summary, os.path.join(result_root, 'summary_{}.xlsx'.format(exp_name)))
-    return summary
+
 
 
 if __name__ == '__main__':
@@ -184,11 +184,14 @@ if __name__ == '__main__':
     parser.add_argument('--train-mot17', action='store_true', help='tracking buffer')
     parser.add_argument('--val-mot17', action='store_true', help='tracking buffer')
     opt = parser.parse_args()
-    print(type(opt))
     print(opt, end='\n\n')
 
     if opt.train_mot17:
-        seqs_str = '''MOT17-02-SDP'''
+        seqs_str = '''MOT17-02-SDP
+                      MOT17-04-SDP
+                      MOT17-05-SDP
+                      MOT17-09-SDP
+                      MOT17-10-SDP'''
         data_root = 'MOT17/images/train'
     
     if opt.val_mot17:

@@ -116,7 +116,8 @@ def train(
 
     model = torch.nn.DataParallel(model)
     # Set scheduler
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=30, gamma=0.1)
+    # scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=30, gamma=0.1)
+    scheduler = torch.optim.lr_sceduler.reduceLROnPlateau(optimizer, mode='min', patience=5)
     # scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer,
     #                                                  milestones=[int(opt.epochs - 9), int(opt.epochs - 3)],
     #                                                  gamma=0.1)
@@ -214,26 +215,17 @@ def train(
                     best_Recall = R
 
                 final_result.append([epoch, mAP, R, P])
-                data_root = 'MOT17/images/val'
-
-                seqs = ['MOT17-11-SDP', 'MOT17-13-SDP']
-                opt.weights = latest
-                print(opt.weights)
-
-                sm = eval_(opt, data_root=data_root, seqs=seqs)
-                mota, motp, idf1, num_switches = sm.mota['OVERALL'], sm.motp['OVERALL'], sm.idf1['OVERALL'], sm.num_switches['OVERALL']
-
                 best_mAP = max(best_mAP, mAP)
 
 
         
         if usewandb:
-            wandb.log({'mAP': mAP, 'Recall': R, 'Precision': P, 'MOTA' : mota, 'MOTP': motp, 'IDF1': idf1, 'IDs': num_switches,
+            wandb.log({'mAP': mAP, 'Recall': R, 'Precision': P,
                         'epoch': epoch, 'box_loss': rloss['box'], 'conf_loss': rloss['conf'], 'id_loss': rloss['id'],'loss': rloss['loss'],
                         'nT_loss': rloss['nT'], "lr": optimizer.param_groups[0]["lr"], "epoch_time": time.time()-t0})
 
         # Call scheduler.step() after opimizer.step() with pytorch > 1.1.0
-        scheduler.step()
+        scheduler.step(loss)
     
     print('Epoch,   mAP,   R,   P:')
     for row in final_result:
