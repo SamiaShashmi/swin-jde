@@ -45,7 +45,8 @@ def train(
     dataset_root = data_config['root']
     f.close()
 
-    transforms = T.Compose([T.ToTensor()])
+    transforms = T.Compose([[T.ToTensor()],
+                           T.Lambda(equalize)])
     # Get dataloader
     dataset = JointDataset(dataset_root, trainset_paths, img_size, augment=True, transforms=transforms)
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True,
