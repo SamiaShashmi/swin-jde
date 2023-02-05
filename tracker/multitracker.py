@@ -2,7 +2,7 @@ from numba import jit
 from collections import deque
 import torch
 from utils.kalman_filter import KalmanFilter
-# from utils.log import logger
+from utils.log import logger
 from models import *
 from tracker import matching
 from .basetrack import BaseTrack, TrackState
@@ -103,7 +103,7 @@ class STrack(BaseTrack):
             self.update_features(new_track.curr_feat)
 
     @property
-    @jit
+    @jit(forceobj=True)
     def tlwh(self):
         """Get current position in bounding box format `(top left x, top left y,
                 width, height)`.
@@ -116,7 +116,7 @@ class STrack(BaseTrack):
         return ret
 
     @property
-    @jit
+    @jit(forceobj=True)
     def tlbr(self):
         """Convert bounding box to format `(min x, min y, max x, max y)`, i.e.,
         `(top left, bottom right)`.
@@ -126,7 +126,7 @@ class STrack(BaseTrack):
         return ret
 
     @staticmethod
-    @jit
+    @jit(forceobj=True)
     def tlwh_to_xyah(tlwh):
         """Convert bounding box to format `(center x, center y, aspect ratio,
         height)`, where the aspect ratio is `width / height`.
@@ -140,14 +140,14 @@ class STrack(BaseTrack):
         return self.tlwh_to_xyah(self.tlwh)
 
     @staticmethod
-    @jit
+    @jit(forceobj=True)
     def tlbr_to_tlwh(tlbr):
         ret = np.asarray(tlbr).copy()
         ret[2:] -= ret[:2]
         return ret
 
     @staticmethod
-    @jit
+    @jit(forceobj=True)
     def tlwh_to_tlbr(tlwh):
         ret = np.asarray(tlwh).copy()
         ret[2:] += ret[:2]
@@ -342,11 +342,11 @@ class JDETracker(object):
         # get scores of lost tracks
         output_stracks = [track for track in self.tracked_stracks if track.is_activated]
 
-        # logger.debug('===========Frame {}=========='.format(self.frame_id))
-        # logger.debug('Activated: {}'.format([track.track_id for track in activated_starcks]))
-        # logger.debug('Refind: {}'.format([track.track_id for track in refind_stracks]))
-        # logger.debug('Lost: {}'.format([track.track_id for track in lost_stracks]))
-        # logger.debug('Removed: {}'.format([track.track_id for track in removed_stracks]))
+        logger.debug('===========Frame {}=========='.format(self.frame_id))
+        logger.debug('Activated: {}'.format([track.track_id for track in activated_starcks]))
+        logger.debug('Refind: {}'.format([track.track_id for track in refind_stracks]))
+        logger.debug('Lost: {}'.format([track.track_id for track in lost_stracks]))
+        logger.debug('Removed: {}'.format([track.track_id for track in removed_stracks]))
         # print('Final {} s'.format(t5-t4))
         return output_stracks
 
