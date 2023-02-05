@@ -14,6 +14,7 @@ import warnings
 from utils.evaluation import Evaluator
 import utils.datasets as datasets
 import motmetrics as mm
+from utils.preprocess import globalEqualization 
 
 def eval_(opt, data_root, seqs):
     result_root = os.path.join(data_root, '..', 'results', 'demo')
@@ -74,7 +75,8 @@ def train(
     dataset_root = data_config['root']
     f.close()
 
-    transforms = T.Compose([T.ToTensor()])
+    transforms = T.Compose([[T.ToTensor()],
+                           T.Lambda(equalize)])
     # Get dataloader
     dataset = JointDataset(dataset_root, trainset_paths, img_size, augment=True, transforms=transforms)
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True,
