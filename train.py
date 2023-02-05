@@ -1,7 +1,7 @@
 import argparse
 import json
 import time
-from time import gmtime, strftime
+from time import localtime, strftime
 import test
 from models import *
 from shutil import copyfile
@@ -9,7 +9,6 @@ from utils.datasets import JointDataset, collate_fn
 from utils.utils import *
 from utils.log import logger
 from torchvision.transforms import transforms as T
-import track
 import warnings
 from utils.preprocess import globalEqualization 
 
@@ -28,16 +27,12 @@ def train(
         opt=None,
         workers = 8,
         usewandb=True,
+        timme=""
 ):
     # The function starts
 
-    final_result = [] 
-
-    timme = strftime("%Y-%d-%m %H:%M:%S", gmtime())
-    timme = timme[5:-3].replace('-', '_')
-    timme = timme.replace(' ', '_')
-    timme = timme.replace(':', '_')
-    weights_to = osp.join(weights_to, 'run' + timme)
+    final_result = []    
+    weights_to = osp.join(weights_to, 'run_' + timme)
     mkdir_if_missing(weights_to)
     if resume:
         latest_resume = osp.join(weights_from, 'latest.pt')
@@ -97,7 +92,8 @@ def train(
 
     model = torch.nn.DataParallel(model)
     # Set scheduler
-    scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=30, gamma=0.1)
+    # scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=30, gamma=0.1)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', patience=5)
     # scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer,
     #                                                  milestones=[int(opt.epochs - 9), int(opt.epochs - 3)],
     #                                                  gamma=0.1)
@@ -177,7 +173,7 @@ def train(
 
         latest = osp.join(weights_to, 'latest.pt')
         torch.save(checkpoint, latest)
-        if epoch % save_every == 0 and epoch != 0:
+        if epoch % opt.test_interval == 0 and epoch != 0:
             # making the checkpoint lite
             torch.save(checkpoint, osp.join(weights_to, "weights_epoch_" + str(epoch) + ".pt"))
 
@@ -195,26 +191,17 @@ def train(
                     best_Recall = R
 
                 final_result.append([epoch, mAP, R, P])
-                data_root = 'MOT17/images/val'
-
-                seqs = ['MOT17-11-SDP', 'MOT17-13-SDP']
-                opt.weights = latest
-                print(opt.weights)
-
-                sm = eval_(opt, data_root=data_root, seqs=seqs)
-                mota, motp, idf1, num_switches = sm.mota['OVERALL'], sm.motp['OVERALL'], sm.idf1['OVERALL'], sm.num_switches['OVERALL']
-
                 best_mAP = max(best_mAP, mAP)
 
 
         
         if usewandb:
-            wandb.log({'mAP': mAP, 'Recall': R, 'Precision': P, 'MOTA' : mota, 'MOTP': motp, 'IDF1': idf1, 'IDs': num_switches,
+            wandb.log({'mAP': mAP, 'Recall': R, 'Precision': P,
                         'epoch': epoch, 'box_loss': rloss['box'], 'conf_loss': rloss['conf'], 'id_loss': rloss['id'],'loss': rloss['loss'],
                         'nT_loss': rloss['nT'], "lr": optimizer.param_groups[0]["lr"], "epoch_time": time.time()-t0})
 
         # Call scheduler.step() after opimizer.step() with pytorch > 1.1.0
-        scheduler.step()
+        scheduler.step(loss)
     
     print('Epoch,   mAP,   R,   P:')
     for row in final_result:
@@ -250,7 +237,7 @@ if __name__ == '__main__':
     parser.add_argument('--unfreeze-bn', action='store_true', help='unfreeze bn')
     parser.add_argument('--num-worker', type=int, default=8, help='Data loader')
     parser.add_argument('--nowandb', action='store_true', help='disable wandb')
-    parser.add_argument('--watermark', type=str, default='Swin_JDE_2', help='watermark for wandb')
+    parser.add_argument('--watermark', type=str, default='Swin_JDE', help='watermark for wandb')
     parser.add_argument('--iou-thres', type=float, default=0.5, help='iou threshold required to qualify as detected')
     parser.add_argument('--conf-thres', type=float, default=0.5, help='object confidence threshold')
     parser.add_argument('--nms-thres', type=float, default=0.4, help='iou threshold for non-maximum suppression')
@@ -262,12 +249,13 @@ if __name__ == '__main__':
     parser.add_argument('--val-mot17', action='store_true', help='tracking buffer')
     parser.add_argument('--weights', type=str, default='weights/latest.pt', help='path to weights file')
     opt = parser.parse_args()
+    timme = strftime("%Y_%m_%d_%H_%M_%S", localtime())
 
     usewandb = ~opt.nowandb
     if usewandb:
         import wandb
         watermar = opt.watermark
-        wandb.init(project="SWIN-JDE", name=watermar)
+        wandb.init(project="SWIN-JDE", name=watermar+timme)
         wandb.config.update(opt)
 
     init_seeds()
@@ -287,4 +275,5 @@ if __name__ == '__main__':
         opt=opt,
         workers=opt.num_worker,
         usewandb=usewandb,
+        timme = timme
     )
