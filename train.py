@@ -11,31 +11,7 @@ from utils.log import logger
 from torchvision.transforms import transforms as T
 import track
 import warnings
-from utils.evaluation import Evaluator
-import utils.datasets as datasets
-import motmetrics as mm
 from utils.preprocess import globalEqualization 
-
-def eval_(opt, data_root, seqs):
-    result_root = os.path.join(data_root, '..', 'results', 'demo')
-    data_type = 'mot'
-    accs = []
-    n_frame = 0
-    for seq in seqs:
-        dataloader = datasets.LoadImages(osp.join(data_root, seq, 'img1'), opt.img_size)
-        result_filename = os.path.join(result_root, '{}.txt'.format(seq))
-        meta_info = open(os.path.join(data_root, seq, 'seqinfo.ini')).read() 
-        frame_rate = int(meta_info[meta_info.find('frameRate')+10:meta_info.find('\nseqLength')])
-        nf, ta, tc = track.eval_seq(opt, dataloader, 'data_type', result_filename)
-        n_frame += nf
-        evaluator = Evaluator(data_root, seq, data_type)
-        accs.append(evaluator.eval_file(result_filename))
-
-
-    metrics = mm.metrics.motchallenge_metrics
-    summary = Evaluator.get_summary(accs, seqs, metrics)
-    
-    return summary
 
 def train(
         cfg,
@@ -76,7 +52,7 @@ def train(
     f.close()
 
     transforms = T.Compose([[T.ToTensor()],
-                           T.Lambda(equalize)])
+                           T.Lambda(globalEqualization)])
     # Get dataloader
     dataset = JointDataset(dataset_root, trainset_paths, img_size, augment=True, transforms=transforms)
     dataloader = torch.utils.data.DataLoader(dataset, batch_size=batch_size, shuffle=True,
